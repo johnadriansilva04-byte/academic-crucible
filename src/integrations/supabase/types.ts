@@ -14,7 +14,87 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      tribunal_progresso: {
+        Row: {
+          apelido: string | null
+          aprovacoes: number
+          banido_ate: string | null
+          banimentos: number
+          created_at: string
+          fase: number
+          pontuacao: number
+          reprovacoes: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          apelido?: string | null
+          aprovacoes?: number
+          banido_ate?: string | null
+          banimentos?: number
+          created_at?: string
+          fase?: number
+          pontuacao?: number
+          reprovacoes?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          apelido?: string | null
+          aprovacoes?: number
+          banido_ate?: string | null
+          banimentos?: number
+          created_at?: string
+          fase?: number
+          pontuacao?: number
+          reprovacoes?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      tribunal_veredictos: {
+        Row: {
+          created_at: string
+          delta_pontos: number
+          fase: number
+          id: string
+          metricas: Json
+          missao: string
+          nota: number
+          sentenca: string
+          tipo: string
+          titulo: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta_pontos?: number
+          fase: number
+          id?: string
+          metricas?: Json
+          missao: string
+          nota?: number
+          sentenca: string
+          tipo: string
+          titulo: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          delta_pontos?: number
+          fase?: number
+          id?: string
+          metricas?: Json
+          missao?: string
+          nota?: number
+          sentenca?: string
+          tipo?: string
+          titulo?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
