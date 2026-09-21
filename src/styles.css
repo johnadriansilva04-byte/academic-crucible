@@ -19,6 +19,9 @@
  */
 
 @theme inline {
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Archivo", "Arial Narrow", sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -46,6 +49,9 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-ring-offset-background: var(--background);
+  --color-alerta: var(--alerta);
+  --color-sucesso: var(--sucesso);
+  --color-grade: var(--grade);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -60,6 +66,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 }
+
 
 :root {
   --radius: 0.625rem;
