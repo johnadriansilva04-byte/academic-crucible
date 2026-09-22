@@ -95,10 +95,11 @@ function Jogo() {
   const punirFuga = useCallback(
     async (motivo: "aba" | "foco" | "colagem") => {
       if (!progresso || !sessao) return;
-      setMotivoFuga(MOTIVOS[motivo]);
+      setMotivoFuga(MOTIVOS[motivo] ?? "IRREGULARIDADE DETECTADA");
       setTela("fuga");
       const penalidade = -40 - fase.id * 10;
-      const humilhacao = HUMILHACOES[Math.floor(Math.random() * HUMILHACOES.length)];
+      const humilhacao = HUMILHACOES[Math.floor(Math.random() * HUMILHACOES.length)] ?? HUMILHACOES[0]!;
+
       const atualizado = await salvarProgresso(sessao.user.id, {
         pontuacao: progresso.pontuacao + penalidade,
         reprovacoes: progresso.reprovacoes + 1,

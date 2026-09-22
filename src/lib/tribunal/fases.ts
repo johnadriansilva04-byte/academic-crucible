@@ -86,4 +86,4 @@ export const FASES: Fase[] = [
   },
 ];
 
-export const getFase = (id: number): Fase => FASES.find((f) => f.id === id) ?? FASES[FASES.length - 1];
+export const getFase = (id: number): Fase => FASES.find((f) => f.id === id) ?? FASES[FASES.length - 1]!;
