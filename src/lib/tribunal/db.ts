@@ -58,7 +58,7 @@ export async function registrarVeredicto(
     sentenca: v.sentenca,
     nota: v.nota,
     delta_pontos: v.deltaPontos,
-    metricas: (v.metricas ?? {}) as Record<string, unknown>,
+    metricas: JSON.parse(JSON.stringify(v.metricas ?? {})),
   });
 }
 

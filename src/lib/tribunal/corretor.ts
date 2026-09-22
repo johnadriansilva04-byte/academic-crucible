@@ -38,20 +38,23 @@ const embaralhar = <T,>(arr: T[]): T[] => {
   const copia = [...arr];
   for (let i = copia.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [copia[i], copia[j]] = [copia[j], copia[i]];
+    const a = copia[i] as T;
+    copia[i] = copia[j] as T;
+    copia[j] = a;
   }
   return copia;
 };
 
 export function sortearDesafio(): DesafioOrtografico {
-  const item = BANCO[Math.floor(Math.random() * BANCO.length)];
-  const correta = item.correta.includes("|") ? item.correta.split("|")[1] : item.correta;
+  const item = BANCO[Math.floor(Math.random() * BANCO.length)] ?? BANCO[0]!;
+  const correta = item.correta.includes("|") ? item.correta.split("|")[1]! : item.correta;
   return {
     correta,
     opcoes: embaralhar([correta, ...item.armadilhas]),
     pista: item.pista,
   };
 }
+
 
 /** Palavras que, se digitadas, disparam a checagem imediata do corretor. */
 const GATILHOS = new Set(
