@@ -4,33 +4,56 @@ import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
 import { FASES, getFase } from "@/lib/tribunal/fases";
-import { analisar, type Veredicto } from "@/lib/tribunal/motor";
+import { analisar } from "@/lib/tribunal/motor";
 import { detectarDesvio, sortearDesafio, type DesafioOrtografico } from "@/lib/tribunal/corretor";
-import { carregarProgresso, listarVeredictos, registrarVeredicto, salvarProgresso, type Progresso } from "@/lib/tribunal/db";
+import {
+  carregarProgresso,
+  listarVeredictos,
+  modoDegradado,
+  registrarVeredicto,
+  salvarProgresso,
+  type Progresso,
+} from "@/lib/tribunal/db";
+import {
+  calcularNivel,
+  conquistasAtivas,
+  estatisticasDe,
+  formatarXP,
+} from "@/lib/tribunal/progressao";
+import { somAlerta, somConquista, somFalha, somHud, somRecompensa } from "@/lib/tribunal/sons";
 import { useVigilancia } from "@/hooks/useVigilancia";
-import { PainelStatus } from "@/components/tribunal/PainelStatus";
+import { CabecalhoJogador } from "@/components/tribunal/CabecalhoJogador";
+import { HudGamer } from "@/components/tribunal/HudGamer";
+import { MenuCampanha } from "@/components/tribunal/MenuCampanha";
+import { TelaMissao } from "@/components/tribunal/TelaMissao";
+import { TelaResultado, type ResultadoCampanha } from "@/components/tribunal/TelaResultado";
 import { CorretorSabotado } from "@/components/tribunal/CorretorSabotado";
+import { Particulas } from "@/components/tribunal/Particulas";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Tribunal Acadêmico — RPG de sobrevivência textual" },
+      { title: "Tribunal Acadêmico — Campanha de Reconstrução do Conhecimento" },
       {
         name: "description",
         content:
-          "Suba do fundamental ao artigo científico escrevendo sob vigilância total, corretor sabotado e julgamento implacável.",
+          "Campanha militar-acadêmica: suba do ensino fundamental à Academia Suprema, recupere fragmentos de conhecimento e evolua sua patente sob vigilância total.",
       },
-      { property: "og:title", content: "Tribunal Acadêmico — RPG de sobrevivência textual" },
+      {
+        property: "og:title",
+        content: "Tribunal Acadêmico — Campanha de Reconstrução do Conhecimento",
+      },
       {
         property: "og:description",
-        content: "Escreva sob cronômetro, sem fugir da aba, e enfrente o veredito do tribunal.",
+        content:
+          "Conclua missões de escrita, ganhe XP, conquistas e patentes. O colapso intelectual espera por você.",
       },
     ],
   }),
   component: Jogo,
 });
 
-type Tela = "carregando" | "deslogado" | "briefing" | "missao" | "veredicto" | "fuga";
+type Tela = "carregando" | "deslogado" | "menu" | "missao" | "resultado" | "fuga";
 
 const MOTIVOS: Record<string, string> = {
   aba: "TROCA DE ABA DETECTADA",
@@ -53,19 +76,28 @@ function Jogo() {
   const [texto, setTexto] = useState("");
   const [tempo, setTempo] = useState(0);
   const [desafio, setDesafio] = useState<DesafioOrtografico | null>(null);
-  const [alerta, setAlerta] = useState<string | null>(null);
-  const [veredicto, setVeredicto] = useState<Veredicto | null>(null);
+  const [alerta, setAlerta] = useState<{ texto: string; tom: "ok" | "erro" } | null>(null);
+  const [resultado, setResultado] = useState<ResultadoCampanha | null>(null);
   const [motivoFuga, setMotivoFuga] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
+  const [fx, setFx] = useState<"aprovado" | "reprovado" | null>(null);
+  const [faseSelecionadaId, setFaseSelecionadaId] = useState(1);
   const desafiadas = useRef<Set<string>>(new Set());
   const textoRef = useRef("");
+  const tempoRef = useRef(0);
 
-  const fase = useMemo(() => getFase(progresso?.fase ?? 1), [progresso]);
+  const fase = useMemo(() => getFase(faseSelecionadaId), [faseSelecionadaId]);
+  const progressoAtual = useMemo(() => progresso ?? null, [progresso]);
+  const nivel = useMemo(() => calcularNivel(progressoAtual?.pontuacao ?? 0), [progressoAtual]);
   const palavras = useMemo(() => texto.trim().split(/\s+/).filter(Boolean).length, [texto]);
 
   useEffect(() => {
     textoRef.current = texto;
   }, [texto]);
+
+  useEffect(() => {
+    tempoRef.current = tempo;
+  }, [tempo]);
 
   useEffect(() => {
     let vivo = true;
@@ -83,8 +115,9 @@ function Jogo() {
       );
       if (!vivo) return;
       setProgresso(p);
+      setFaseSelecionadaId(p.fase);
       setHistorico(await listarVeredictos(data.session.user.id));
-      setTela("briefing");
+      setTela("menu");
     });
     return () => {
       vivo = false;
@@ -94,19 +127,23 @@ function Jogo() {
   // ---- Carcereiro de abas ----
   const punirFuga = useCallback(
     async (motivo: "aba" | "foco" | "colagem") => {
-      if (!progresso || !sessao) return;
+      const atual = progressoAtual;
+      if (!atual || !sessao) return;
       setMotivoFuga(MOTIVOS[motivo] ?? "IRREGULARIDADE DETECTADA");
       setTela("fuga");
+      somAlerta();
       const penalidade = -40 - fase.id * 10;
-      const humilhacao = HUMILHACOES[Math.floor(Math.random() * HUMILHACOES.length)] ?? HUMILHACOES[0]!;
+      const humilhacao =
+        HUMILHACOES[Math.floor(Math.random() * HUMILHACOES.length)] ?? HUMILHACOES[0]!;
 
       const atualizado = await salvarProgresso(sessao.user.id, {
-        pontuacao: progresso.pontuacao + penalidade,
-        reprovacoes: progresso.reprovacoes + 1,
-        banimentos: progresso.banimentos + 1,
+        pontuacao: Math.max(0, atual.pontuacao + penalidade),
+        reprovacoes: atual.reprovacoes + 1,
+        banimentos: atual.banimentos + 1,
+        combo: 0,
       });
       await registrarVeredicto(sessao.user.id, fase.id, fase.missao, "fuga", {
-        titulo: "GAME OVER — FUGA DA PROVA",
+        titulo: "GAME OVER — FUGA DA MISSÃO",
         sentenca: humilhacao,
         nota: 0,
         deltaPontos: penalidade,
@@ -114,7 +151,7 @@ function Jogo() {
       setProgresso(atualizado);
       setHistorico(await listarVeredictos(sessao.user.id));
     },
-    [progresso, sessao, fase],
+    [progressoAtual, sessao, fase],
   );
 
   useVigilancia(tela === "missao", (motivo) => void punirFuga(motivo));
@@ -136,13 +173,15 @@ function Jogo() {
     if (tela !== "missao" || desafio) return;
     const t = setTimeout(() => setDesafio(sortearDesafio()), 75000);
     return () => clearTimeout(t);
-  }, [tela, desafio, tempo === 0]);
+  }, [tela, desafio]);
 
   function iniciarMissao() {
     setTexto("");
-    setVeredicto(null);
+    setResultado(null);
+    setFx(null);
     desafiadas.current = new Set();
     setTempo(fase.tempoSegundos);
+    somHud();
     setTela("missao");
   }
 
@@ -159,29 +198,83 @@ function Jogo() {
   function resolverCorretor(acertou: boolean) {
     setDesafio(null);
     if (acertou) {
-      setAlerta("GRAFIA ACEITA. PROSSIGA.");
+      setAlerta({ texto: "GRAFIA ACEITA. PROSSIGA, RECRUTA.", tom: "ok" });
+      somHud();
     } else {
       setTempo((s) => Math.max(0, s - 30));
-      setAlerta("ALTERNATIVA ERRADA. -30s DE PENALIDADE.");
+      setAlerta({ texto: "ALTERNATIVA ERRADA. -30s · INSTABILIDADE +6%", tom: "erro" });
+      somFalha();
     }
     setTimeout(() => setAlerta(null), 3000);
   }
 
   async function julgar() {
-    if (!sessao || !progresso || processando) return;
+    const atual = progressoAtual;
+    if (!sessao || !atual || processando) return;
     setProcessando(true);
-    const v = analisar(textoRef.current, fase);
-    setVeredicto(v);
-    setTela("veredicto");
 
-    const novaFase = v.aprovado ? Math.min(fase.id + 1, FASES.length) : fase.id;
-    const atualizado = await salvarProgresso(sessao.user.id, {
-      fase: novaFase,
-      pontuacao: progresso.pontuacao + v.deltaPontos,
-      aprovacoes: progresso.aprovacoes + (v.aprovado ? 1 : 0),
-      reprovacoes: progresso.reprovacoes + (v.aprovado ? 0 : 1),
+    const v = analisar(textoRef.current, fase, atual.combo);
+    const nivelAntes = calcularNivel(atual.pontuacao);
+    const xpTotalDepois = atual.pontuacao + v.recompensas.xp;
+    const nivelDepois = calcularNivel(xpTotalDepois);
+
+    const combo = v.aprovado ? atual.combo + 1 : 0;
+    const proximaFase = v.aprovado ? Math.min(fase.id + 1, FASES.length) : fase.id;
+    const melhorNota = Math.max(atual.melhor_nota, v.nota);
+    const melhorNotaAvancada =
+      fase.id >= 3 ? Math.max(atual.melhor_nota_avancada, v.nota) : atual.melhor_nota_avancada;
+
+    const patch: Partial<Progresso> = {
+      fase: proximaFase,
+      pontuacao: xpTotalDepois,
+      xp: xpTotalDepois,
+      aprovacoes: atual.aprovacoes + (v.aprovado ? 1 : 0),
+      reprovacoes: atual.reprovacoes + (v.aprovado ? 0 : 1),
+      combo,
+      combo_maximo: Math.max(atual.combo_maximo, combo),
+      moedas: atual.moedas + v.recompensas.moedas,
+      conhecimento: atual.conhecimento + v.recompensas.conhecimento,
+      medalhas: atual.medalhas + v.recompensas.medalhas,
+      missoes_concluidas: atual.missoes_concluidas + (v.aprovado ? 1 : 0),
+      melhor_nota: melhorNota,
+      melhor_nota_avancada: melhorNotaAvancada,
+      campanha_concluida: atual.campanha_concluida || (v.aprovado && fase.id === FASES.length),
+    };
+
+    const candidato: Progresso = { ...atual, ...patch };
+    const anteriores = new Set(conquistasAtivas(estatisticasDe(atual)));
+    const conquistasNovas = conquistasAtivas(estatisticasDe(candidato)).filter(
+      (c) => !anteriores.has(c),
+    );
+    patch.conquistas = Array.from(new Set([...atual.conquistas, ...conquistasNovas]));
+
+    // Atualização otimista — a interface reage imediatamente.
+    setProgresso(candidato);
+    setFx(v.aprovado ? "aprovado" : "reprovado");
+    setResultado({
+      veredicto: v,
+      fase,
+      nivelAntes,
+      nivelDepois,
+      conquistasNovas,
+      xpTotalAntes: atual.pontuacao,
+      xpTotalDepois,
     });
-    await registrarVeredicto(sessao.user.id, fase.id, fase.missao, "julgamento", { ...v, metricas: v.metricas });
+    setTela("resultado");
+
+    if (v.aprovado) {
+      somRecompensa();
+      if (conquistasNovas.length > 0) setTimeout(somConquista, 900);
+    } else {
+      somFalha();
+    }
+
+    const atualizado = await salvarProgresso(sessao.user.id, patch);
+    await registrarVeredicto(sessao.user.id, fase.id, fase.missao, "julgamento", {
+      ...v,
+      metricas: v.metricas,
+      recompensas: v.recompensas,
+    });
     setProgresso(atualizado);
     setHistorico(await listarVeredictos(sessao.user.id));
     setProcessando(false);
@@ -194,29 +287,31 @@ function Jogo() {
 
   if (tela === "carregando") {
     return (
-      <main className="flex min-h-screen items-center justify-center">
-        <p className="etiqueta pulsar">Estabelecendo conexão com o tribunal…</p>
+      <main className="relative flex min-h-screen items-center justify-center">
+        <Particulas quantidade={18} />
+        <p className="etiqueta pulsar">Estabelecendo conexão com o Alto Comando Acadêmico…</p>
       </main>
     );
   }
 
   if (tela === "deslogado" || !progresso) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="painel max-w-md p-8 text-center">
+      <main className="relative flex min-h-screen items-center justify-center px-4">
+        <Particulas quantidade={22} />
+        <div className="painel-holo chanfro entrada-hud relative z-10 max-w-md p-8 text-center">
           <p className="etiqueta">Acesso restrito</p>
-          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-extrabold uppercase">
+          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-extrabold uppercase neon-texto">
             Tribunal Acadêmico
           </h1>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Sem matrícula não há julgamento. Registre-se para iniciar a escalada do ensino fundamental ao artigo
-            científico de elite.
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            O colapso intelectual apagou o conhecimento da humanidade. Sem matrícula não há
+            julgamento. Aliste-se como Recruta Acadêmico e atravesse os graus da civilização.
           </p>
           <button
             onClick={() => navigate({ to: "/auth" })}
-            className="mt-6 w-full bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-[0.2em] text-primary-foreground"
+            className="chanfro-suave mt-6 w-full border border-[var(--color-neon)] bg-[color-mix(in_oklab,var(--color-neon)_14%,transparent)] px-4 py-3 text-xs font-bold uppercase tracking-[0.22em] text-[var(--color-neon)] transition-all hover:bg-[var(--color-neon)] hover:text-black"
           >
-            Efetuar matrícula
+            ▶ Efetuar alistamento
           </button>
         </div>
       </main>
@@ -224,184 +319,97 @@ function Jogo() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-7xl px-4 py-6">
-      <header className="painel mb-4 flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-        <div className="flex items-baseline gap-3">
-          <span className="font-[family-name:var(--font-display)] text-lg font-extrabold uppercase tracking-tight">
-            Tribunal Acadêmico
-          </span>
-          <span className="etiqueta">Terminal de avaliação v1.0</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-[0.7rem] text-muted-foreground">{progresso.apelido ?? sessao?.user.email}</span>
-          <button onClick={sair} className="etiqueta hover:text-destructive">Encerrar sessão</button>
-        </div>
-      </header>
+    <main className="relative mx-auto min-h-screen max-w-[1500px] px-3 py-4 sm:px-5 sm:py-6">
+      <Particulas />
 
-      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
-        <PainelStatus
+      <CabecalhoJogador
+        progresso={progresso}
+        nivel={nivel}
+        apelido={progresso.apelido}
+        email={sessao?.user.email}
+        aoSair={() => void sair()}
+      />
+
+      {modoDegradado() && (
+        <p className="chanfro-suave relative z-10 mt-3 border border-[var(--alerta)]/60 bg-[color-mix(in_oklab,var(--alerta)_12%,transparent)] px-4 py-2 text-[0.66rem] uppercase tracking-[0.16em] text-[var(--alerta)]">
+          ⚠ Modo de compatibilidade: a migração da campanha ainda não foi aplicada no banco. XP,
+          patente e conquistas desta sessão não serão persistidos.
+        </p>
+      )}
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[320px_1fr]">
+        <HudGamer
           progresso={progresso}
           fase={fase}
           palavras={palavras}
           tempo={tela === "missao" ? tempo : fase.tempoSegundos}
           emMissao={tela === "missao"}
+          comboFlash={progresso.combo}
         />
 
         <section className="min-h-[70vh]">
-          {tela === "briefing" && (
-            <div className="painel h-full p-6">
-              <p className="etiqueta">Missão {fase.missao}</p>
-              <h2 className="mt-2 font-[family-name:var(--font-display)] text-2xl font-extrabold uppercase">
-                {fase.genero}
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">{fase.descricao}</p>
-
-              <div className="mt-6 border-l-2 border-primary bg-secondary/40 p-4">
-                <p className="etiqueta">Tema imposto</p>
-                <p className="mt-1 text-sm leading-relaxed">{fase.tema}</p>
-              </div>
-
-              <ul className="mt-6 grid gap-2 sm:grid-cols-3">
-                {fase.exigencias.map((e) => (
-                  <li key={e} className="border border-border p-3 text-[0.7rem] uppercase tracking-wider text-muted-foreground">
-                    {e}
-                  </li>
-                ))}
-              </ul>
-
-              <div className="mt-6 border border-destructive/40 bg-destructive/10 p-4 text-xs leading-relaxed">
-                <p className="font-bold uppercase tracking-[0.18em] text-destructive">Regime de vigilância</p>
-                <p className="mt-2 text-muted-foreground">
-                  Ao iniciar, trocar de aba, minimizar, clicar fora da janela ou colar conteúdo externo resulta em
-                  game over imediato, perda de pontos e registro permanente de banimento. O corretor ortográfico
-                  nativo está desativado — desvios disparam uma escolha de três alternativas sob cronômetro.
-                </p>
-              </div>
-
-              <button
-                onClick={iniciarMissao}
-                className="mt-6 w-full bg-primary px-4 py-3 text-xs font-bold uppercase tracking-[0.22em] text-primary-foreground hover:opacity-90"
-              >
-                Iniciar julgamento — {Math.floor(fase.tempoSegundos / 60)} min
-              </button>
-
-              {historico.length > 0 && (
-                <div className="mt-8">
-                  <p className="etiqueta">Histórico de veredictos</p>
-                  <ul className="mt-2 divide-y divide-border border border-border">
-                    {historico.map((h) => (
-                      <li key={h.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[0.7rem]">
-                        <span className="truncate uppercase tracking-wider">{h.titulo}</span>
-                        <span className={h.delta_pontos >= 0 ? "text-[var(--sucesso)]" : "text-destructive"}>
-                          {h.delta_pontos >= 0 ? "+" : ""}
-                          {h.delta_pontos}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+          {tela === "menu" && (
+            <MenuCampanha
+              progresso={progresso}
+              nivel={nivel}
+              faseSelecionada={fase}
+              aoSelecionarFase={(id) => {
+                somHud();
+                setFaseSelecionadaId(id);
+              }}
+              aoIniciar={iniciarMissao}
+              historico={historico}
+            />
           )}
 
           {tela === "missao" && (
-            <div className="painel flex h-full flex-col p-5">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <p className="etiqueta text-destructive pulsar">● Gravando — vigilância ativa</p>
-                <p className="etiqueta">{fase.missao}</p>
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{fase.tema}</p>
-
-              {alerta && (
-                <p className="mt-3 border border-primary bg-primary/10 px-3 py-2 text-[0.7rem] uppercase tracking-[0.18em] text-primary">
-                  {alerta}
-                </p>
-              )}
-
-              <textarea
-                autoFocus
-                spellCheck={false}
-                autoCorrect="off"
-                autoCapitalize="off"
-                data-gramm="false"
-                value={texto}
-                onChange={(e) => aoDigitar(e.target.value)}
-                onPaste={(e) => e.preventDefault()}
-                onDrop={(e) => e.preventDefault()}
-                placeholder="Escreva. O tribunal não aceita rascunhos importados."
-                className="mt-4 min-h-[50vh] flex-1 resize-none border border-input bg-background p-4 text-sm leading-relaxed outline-none focus:border-primary"
-              />
-
-              <button
-                onClick={() => void julgar()}
-                disabled={processando}
-                className="mt-4 w-full border border-primary px-4 py-3 text-xs font-bold uppercase tracking-[0.22em] text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
-              >
-                Submeter ao tribunal
-              </button>
-            </div>
+            <TelaMissao
+              fase={fase}
+              texto={texto}
+              palavras={palavras}
+              alerta={alerta}
+              processando={processando}
+              fx={fx}
+              aoDigitar={aoDigitar}
+              aoJulgar={() => void julgar()}
+            />
           )}
 
-          {tela === "veredicto" && veredicto && (
-            <div className="painel h-full p-6">
-              <p className="etiqueta">Sentença do tribunal</p>
-              <h2
-                className={`mt-2 font-[family-name:var(--font-display)] text-3xl font-extrabold uppercase ${
-                  veredicto.aprovado ? "text-[var(--sucesso)]" : "text-destructive"
-                }`}
-              >
-                {veredicto.titulo}
-              </h2>
-              <p className="mt-3 text-sm leading-relaxed">{veredicto.sentenca}</p>
-
-              <div className="mt-6 grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
-                <Metrica rotulo="Nota" valor={`${veredicto.nota}/100`} />
-                <Metrica rotulo="Pontos" valor={`${veredicto.deltaPontos >= 0 ? "+" : ""}${veredicto.deltaPontos}`} />
-                <Metrica rotulo="Coesão" valor={`${veredicto.metricas.coesao}%`} />
-                <Metrica rotulo="Argumentação" valor={`${veredicto.metricas.densidadeArgumentativa}%`} />
-                <Metrica rotulo="Vocabulário" valor={`${veredicto.metricas.vocabularioElevado}%`} />
-                <Metrica rotulo="Diversidade" valor={`${veredicto.metricas.diversidade}%`} />
-                <Metrica rotulo="Palavras" valor={String(veredicto.metricas.palavras)} />
-                <Metrica rotulo="Média/frase" valor={String(veredicto.metricas.mediaFrase)} />
-              </div>
-
-              {veredicto.criticas.length > 0 && (
-                <div className="mt-6">
-                  <p className="etiqueta">Apontamentos da banca</p>
-                  <ul className="mt-2 space-y-1">
-                    {veredicto.criticas.map((c) => (
-                      <li key={c} className="border-l-2 border-destructive/60 pl-3 text-xs text-muted-foreground">
-                        {c}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <button
-                onClick={() => setTela("briefing")}
-                className="mt-8 w-full bg-primary px-4 py-3 text-xs font-bold uppercase tracking-[0.22em] text-primary-foreground"
-              >
-                {veredicto.aprovado ? "Avançar de grau" : "Repetir o ano"}
-              </button>
-            </div>
+          {tela === "resultado" && resultado && (
+            <TelaResultado
+              resultado={resultado}
+              aoContinuar={() => {
+                somHud();
+                if (resultado.veredicto.aprovado) setFaseSelecionadaId(progresso.fase);
+                setTela("menu");
+                setFx(null);
+              }}
+            />
           )}
 
           {tela === "fuga" && (
-            <div className="painel flex h-full flex-col items-center justify-center border-destructive p-8 text-center">
+            <div className="painel-holo chanfro alerta-vermelho glitch flex h-full flex-col items-center justify-center border-destructive p-8 text-center">
               <p className="etiqueta text-destructive pulsar">{motivoFuga}</p>
-              <h2 className="mt-4 font-[family-name:var(--font-display)] text-5xl font-extrabold uppercase text-destructive">
+              <h2 className="mt-4 font-[family-name:var(--font-display)] text-5xl font-extrabold uppercase text-destructive sm:text-6xl">
                 Game Over
               </h2>
               <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-                O carcereiro de abas registrou sua evasão. Prova anulada, pontuação descontada e banimento anotado no
-                seu histórico permanente. O tribunal considera o candidato indigno do grau pretendido.
+                O carcereiro de abas registrou sua evasão. Missão anulada, XP drenado, estabilidade
+                do sistema corrompida e banimento gravado no histórico permanente. O tribunal
+                considera o candidato indigno do grau pretendido.
+              </p>
+              <p className="mt-3 text-[0.68rem] uppercase tracking-[0.2em] text-destructive">
+                Recorde de sequência preservado: {formatarXP(progresso.combo_maximo)} acertos
               </p>
               <button
-                onClick={() => setTela("briefing")}
-                className="mt-8 border border-destructive px-6 py-3 text-xs font-bold uppercase tracking-[0.22em] text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                onClick={() => {
+                  somHud();
+                  setFaseSelecionadaId(progresso.fase);
+                  setTela("menu");
+                }}
+                className="chanfro-suave mt-8 border border-destructive px-6 py-3 text-xs font-bold uppercase tracking-[0.22em] text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
               >
-                Voltar ao banco dos réus
+                ▶ Voltar ao banco dos réus
               </button>
             </div>
           )}
@@ -410,14 +418,5 @@ function Jogo() {
 
       {desafio && <CorretorSabotado desafio={desafio} onResolver={resolverCorretor} />}
     </main>
-  );
-}
-
-function Metrica({ rotulo, valor }: { rotulo: string; valor: string }) {
-  return (
-    <div className="bg-card p-3">
-      <p className="etiqueta">{rotulo}</p>
-      <p className="mt-0.5 text-base font-bold tabular-nums">{valor}</p>
-    </div>
   );
 }

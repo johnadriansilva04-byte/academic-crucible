@@ -20,36 +20,69 @@ export type Database = {
           aprovacoes: number
           banido_ate: string | null
           banimentos: number
+          campanha_concluida: boolean
+          combo: number
+          combo_maximo: number
+          conhecimento: number
+          conquistas: Json
           created_at: string
           fase: number
+          medalhas: number
+          melhor_nota: number
+          melhor_nota_avancada: number
+          missoes_concluidas: number
+          moedas: number
           pontuacao: number
           reprovacoes: number
           updated_at: string
           user_id: string
+          xp: number
         }
         Insert: {
           apelido?: string | null
           aprovacoes?: number
           banido_ate?: string | null
           banimentos?: number
+          campanha_concluida?: boolean
+          combo?: number
+          combo_maximo?: number
+          conhecimento?: number
+          conquistas?: Json
           created_at?: string
           fase?: number
+          medalhas?: number
+          melhor_nota?: number
+          melhor_nota_avancada?: number
+          missoes_concluidas?: number
+          moedas?: number
           pontuacao?: number
           reprovacoes?: number
           updated_at?: string
           user_id: string
+          xp?: number
         }
         Update: {
           apelido?: string | null
           aprovacoes?: number
           banido_ate?: string | null
           banimentos?: number
+          campanha_concluida?: boolean
+          combo?: number
+          combo_maximo?: number
+          conhecimento?: number
+          conquistas?: Json
           created_at?: string
           fase?: number
+          medalhas?: number
+          melhor_nota?: number
+          melhor_nota_avancada?: number
+          missoes_concluidas?: number
+          moedas?: number
           pontuacao?: number
           reprovacoes?: number
           updated_at?: string
           user_id?: string
+          xp?: number
         }
         Relationships: []
       }
